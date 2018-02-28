@@ -49,6 +49,7 @@ import logging
 import json
 import bluetooth._bluetooth as bluez
 import time
+import logging
 
 import socket
 from threading import Thread
