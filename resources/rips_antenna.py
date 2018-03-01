@@ -36,7 +36,7 @@
  Works well with Nut mini BLE devices: (https://goo.gl/l36Gtz)
  
  USAGE
- $ python BLE.py hciAdapterID debug jsonTagsBDaddr
+ $ python rips_antenna.py hciAdapterID debug jsonTagsBDaddr antenna gateway
         Example: sudo python rips_antenna.py 0 1 [\"EF:A2:C5:EB:A3:2F\",\"FF:FE:8A:40:FA:97\"]
  $ python BLE.py kill
         This will kill the previously launched BLE.py processes
@@ -49,7 +49,6 @@ import logging
 import json
 import bluetooth._bluetooth as bluez
 import time
-import logging
 
 import socket
 from threading import Thread
@@ -73,12 +72,12 @@ def Initialize():
         me = os.path.basename(__file__)
         
         # Check 3 args are supplied or 1 arg 'kill'
-        if not(len(sys.argv) == 4) and not(len(sys.argv) == 2 and sys.argv[1] =='kill'):
+        if not(len(sys.argv) == 6) and not(len(sys.argv) == 2 and sys.argv[1] =='kill'):
             print("ERROR: Please use arguments")
-            print("$ python "+me+" adapterNb debug jsonTagsBdaddr")
+            print("$ python "+me+" adapterNb debug jsonTagsBdaddr antenna gateway")
             print("$ python "+me+" kill")
             sys.exit(1)
-        elif len(sys.argv) == 4: # ARG2: define logging level
+        elif len(sys.argv) == 6: # ARG2: define logging level
             FORMAT = '%(asctime)s - %(message)s'
             if sys.argv[2] == "1":
                 logLevel=logging.DEBUG
@@ -122,8 +121,26 @@ def Initialize():
             logging.critical('ERROR - Wrong json for TAGS: %s'%sys.argv[3])
             sys.exit(1)
         #TAG_DATA=[["F0:46:00:0B:8B:01",0,-200],["E8:4E:BC:87:86:9F",0,-200]]
+        
+        # ARG4: name of the antenna
+        try:
+            antenna = sys.argv[4]
+            logging.debug('Will use antenna name %s '%sys.argv[4])
+        except:
+            print('ERROR: Wrong antenna name')
+            logging.critical('ERROR - Wrong antenna name: %s'%sys.argv[4])
+            sys.exit(1)
             
-        return [hciId,TAG_DATA]
+        # ARG5: name or Ip address of the gateway that collects data
+        try:
+            gateway = sys.argv[5]
+            logging.debug('Will use antenna name %s '%sys.argv[5])
+        except:
+            print('ERROR: Wrong gateway name or ip')
+            logging.critical('ERROR - Wrong gateway name or ip: %s'%sys.argv[5])
+            sys.exit(1)
+            
+        return [hciId,TAG_DATA,antenna,gateway]
 
 class ListenBle(Thread):
     
@@ -190,23 +207,28 @@ class ListenBle(Thread):
                                     tag[2] = rssi
                                     #print ('packet et rssi=',pkt,rssi)
                                     logging.debug('Tag %s seen @ %i - rssi= %i',tag[0],tag[1],rssi)
-                                    jsonTag = json.dumps([tag[0],tag[1],tag[2]],separators=(',', ':')) # json encode TAG_DATA list
-                                    self.gateway.Send(jsonTag)
+                                    #jsonTag = json.dumps([tag[0],tag[1],tag[2]],separators=(',', ':')) # json encode TAG_DATA list
+                                    #self.gateway.Send(jsonTag)
+                                    self.gateway.Send([tag[0],tag[1],tag[2]])
+                                    
             sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, old_filter )
 
 
 class push:
     
-    def __init__(self,host,port):
+    def __init__(self,host,port,antenna):
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.host = host
         self.port = port
+        self.antenna = antenna
 
     def Connect(self):
         if self.host == None:
             self.host = "127.0.0.1"
         if self.port == None:
             self.port = 7008
+        if self.antenna == None:
+            self.antenna = "myAntenna"
     
         try:
             self.soc.connect((self.host, self.port))
@@ -218,14 +240,16 @@ class push:
         self.soc.send(b'--quit--')
         
     def Send(self,message):
-        self.soc.sendall(message.encode("utf8"))
+        #jsonTag = json.dumps([tag[0],tag[1],tag[2]],separators=(',', ':'))
+        json.dumps([self.antenna,message[0],message[1],message[2]],separators=(',', ':'))
+        self.soc.sendall(json.dumps([self.antenna,message[0],message[1],message[2]],separators=(',', ':')).encode("utf8"))
         if self.soc.recv(5120).decode("utf8") == "-":
             pass        # null operation
 
 def Main():
     
     values=Initialize()
-    gateway = push("127.0.0.1",7008)
+    gateway = push(values[3],7008,values[2])
     gateway.Connect()
     #TAG_DATA=[["F0:46:00:0B:8B:01",0,-200],["E8:4E:BC:87:86:9F",0,-200]]
     t=ListenBle(values[0],values[1],gateway)
