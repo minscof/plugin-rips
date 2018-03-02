@@ -98,14 +98,22 @@ def writeBuffer(queue):
     mutex.acquire()
     for data in list(queue):
         #logging.debug('Tag %s seen @ %i - rssi= %i from %s',data[1],data[2],data[3],data[0])
-        file.write(str(data[1])+","+str(data[2])+","+str(data[3])+","+str(data[0])+"\n")
+        if len(data) == 4 :
+            file.write(str(data[1])+","+str(data[2])+","+str(data[3])+","+str(data[0])+"\n")
+        else :
+            logging.debug("error : remote antenna is not compliant - invalid data : index should be 4 but is %i",len(data))
+            
         
     
     queue.clear()
     mutex.release() 
     file.close() 
         
-
+def analyzePosition(queue):
+    mutex.acquire()
+    
+    mutex.release()
+    return
 
 def process_input(input_str):
     global queue, maxItem, mode, mutex
@@ -125,6 +133,8 @@ def process_input(input_str):
     mutex.acquire()
     queue.append(data)
     mutex.release()
+    if mode == "Analyze" :
+        analyzePosition(queue)
     #logging.debug('len queue',len(queue))
     #print ("len queue %i max %i",len(queue),maxItem)
     if len(queue) > maxItem:
