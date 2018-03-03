@@ -37,7 +37,7 @@
  
  USAGE
  $ python rips_antenna.py gateway debug antenna hciAdapterID  jsonTagsBDaddr  
-        Example: sudo python rips_antenna.py 192.168.09 1 myAntenna 0 "EF:A2:C5:EB:A3:2F,FF:FE:8A:40:FA:97"
+        Example: sudo python rips_antenna.py 192.168.0.2 1 myAntenna 0 "EF:A2:C5:EB:A3:2F,FF:FE:8A:40:FA:97"
  $ python BLE.py kill
         This will kill the previously launched BLE.py processes
 '''
@@ -58,6 +58,8 @@ OGF_LE_CTL=0x08
 OCF_LE_SET_SCAN_ENABLE=0x000C
 EVT_LE_CONN_COMPLETE=0x01
 EVT_LE_ADVERTISING_REPORT=0x02
+
+scan = True
 
 def packed_bdaddr_to_string(bdaddr_packed):
     return ':'.join('%02x'%i for i in struct.unpack("<BBBBBB", bdaddr_packed[::-1]))
@@ -175,7 +177,7 @@ class ListenBle(Thread):
     def run(self):   
         # MAIN part of the script
         # Connect to hci adapter
-        
+        global scan
         try:
             sock = bluez.hci_open_dev(self.hciId)
             logging.debug('Connected to bluetooth adapter hci%i',self.hciId)
@@ -187,46 +189,54 @@ class ListenBle(Thread):
         hci_toggle_le_scan(sock, 0x01)
         # Infinite loop to listen socket
         while True:
-            old_filter = sock.getsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, 14)
-            flt = bluez.hci_filter_new()
-            bluez.hci_filter_all_events(flt)
-            bluez.hci_filter_set_ptype(flt, bluez.HCI_EVENT_PKT)
-            sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, flt )
-        
-            pkt = sock.recv(255)
+            if scan :
+                old_filter = sock.getsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, 14)
+                flt = bluez.hci_filter_new()
+                bluez.hci_filter_all_events(flt)
+                bluez.hci_filter_set_ptype(flt, bluez.HCI_EVENT_PKT)
+                sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, flt )
             
-            ptype, event, plen = struct.unpack("BBB", pkt[:3])
-        
-            if event == LE_META_EVENT:
-                #print ('packet=',pkt)
-                #subevent=pkt[3]
-                subevent, = struct.unpack("B", pkt[3:4])
-                pkt = pkt[4:]
-                if subevent == EVT_LE_CONN_COMPLETE:
-                    le_handle_connection_complete(pkt)
-                elif subevent == EVT_LE_ADVERTISING_REPORT:
-                    num_reports = struct.unpack("B", pkt[0:1])[0]
-                    for i in range(0, num_reports):
-                        macAdressSeen=packed_bdaddr_to_string(pkt[3:9])
-                        rssi, = struct.unpack("b", pkt[len(pkt)-1:len(pkt)])
-                        #print('mac=',macAdressSeen)
-                        ts = int(time.time()) # time of event
-                        logging.debug('Tag %s seen @ %i - rssi= %i',macAdressSeen,ts,rssi)
-                        if (macAdressSeen in self.TAG_DATA.keys()) :
-                            tag=self.TAG_DATA[macAdressSeen]
-                        else:
-                            tag=[macAdressSeen,0,-200]
-                        self.TAG_DATA[macAdressSeen]=[macAdressSeen,ts,rssi]
-                        #print('    check mac=',tag[0].lower())
-                        if (macAdressSeen in self.TAG_FILTER.keys()) or (len(self.TAG_FILTER) == 0):
+                pkt = sock.recv(255)
+                
+                ptype, event, plen = struct.unpack("BBB", pkt[:3])
+            
+                if event == LE_META_EVENT:
+                    #print ('packet=',pkt)
+                    #subevent=pkt[3]
+                    subevent, = struct.unpack("B", pkt[3:4])
+                    pkt = pkt[4:]
+                    if subevent == EVT_LE_CONN_COMPLETE:
+                        le_handle_connection_complete(pkt)
+                    elif subevent == EVT_LE_ADVERTISING_REPORT:
+                        num_reports = struct.unpack("B", pkt[0:1])[0]
+                        for i in range(0, num_reports):
+                            macAdressSeen=packed_bdaddr_to_string(pkt[3:9])
+                            rssi, = struct.unpack("b", pkt[len(pkt)-1:len(pkt)])
                             #print('mac=',macAdressSeen)
-                            #print ('packet=',pkt)
-                            # More than 2 seconds from last seen, so we can call php callback. This prevent overload from high freq advertising devices
-                            inc=0
-                            if ts > tag[1]+inc:
-                                self.gateway.Send(macAdressSeen,ts,rssi)
-                                    
-            sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, old_filter )
+                            ts = int(time.time()) # time of event
+                            
+                            if (macAdressSeen in self.TAG_DATA.keys()) :
+                                tag=self.TAG_DATA[macAdressSeen]
+                            else:
+                                tag=[macAdressSeen,0,-200]
+                            self.TAG_DATA[macAdressSeen]=[macAdressSeen,ts,rssi]
+                            #print('    check mac=',tag[0].lower())
+                            if (macAdressSeen in self.TAG_FILTER.keys()) or (len(self.TAG_FILTER) == 0):
+                                logging.debug('Tag %s seen @ %i - rssi= %i',macAdressSeen,ts,rssi)
+                                #print('mac=',macAdressSeen)
+                                #print ('packet=',pkt)
+                                # More than 2 seconds from last seen, so we can call php callback. This prevent overload from high freq advertising devices
+                                inc=0
+                                if ts > tag[1]+inc:
+                                    self.gateway.Send(macAdressSeen,ts,rssi)
+                                        
+                sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, old_filter )
+            else :
+                #print("wait 5 sec")
+                time.sleep(5)
+                #print("wait 5 sec ended")
+                self.gateway.SendCommand("--wait--")
+                
 
 
 class push:
@@ -255,23 +265,64 @@ class push:
         self.soc.send(b'--quit--')
         
     def Send(self,macAdress,ts,rssi):
-        #jsonTag = json.dumps([tag[0],tag[1],tag[2]],separators=(',', ':'))
-        #json.dumps([self.antenna,macAdress,ts,rssi],separators=(',', ':'))
+        global scan, TAG_FILTER
+        #TODO add try except if server leave to leave
         self.soc.sendall(json.dumps([self.antenna,macAdress,ts,rssi],separators=(',', ':')).encode("utf8"))
-        if self.soc.recv(5120).decode("utf8") == "-":
+        receive = self.soc.recv(5120)
+        if receive.decode("utf8") == "-":
             pass        # null operation
+        else:
+            print('Received command = ',receive)
+            if receive.decode("utf8") == "--stop--" :
+                scan = False
+            if "--filter--" in receive.decode("utf8")  :
+                filter = receive.decode("utf8").split(",")
+                print('zzz Received command contains filter',len(filter))
+                if len(filter) > 1:
+                    tag = filter[1]
+                    TAG_FILTER[tag] = tag
+                    print ('filter=',tag)
+            
         
     def SendCommand(self,command):
+        global scan, TAG_FILTER
         self.soc.sendall(command.encode("utf8"))
-        if self.soc.recv(5120).decode("utf8") == "-":
+        receive = self.soc.recv(5120)
+        if receive.decode("utf8") == "-":
+            scan = True
             pass        # null operation
+        else:
+            print('Received command = ',receive)
+            if receive.decode("utf8") == "--stop--" :
+                scan = False
+            elif receive.decode("utf8") == "--start--" :
+                scan = True
+            elif receive.decode("utf8") == "--scan--" :
+                scan = True
+            elif "--filter--" in receive.decode("utf8") :
+                filter = receive.decode("utf8").split(",")
+                print('Received command contains filter',len(filter))
+                if len(filter) > 1:
+                    tag = filter[1]
+                    TAG_FILTER[tag] = tag
+                    print ('filter=',tag)
+                scan = True
+            elif receive.decode("utf8") == "--quit--" :
+                scan = False
+                print("exit scanning asked")
+                os._exit(0)
+            else :
+                scan = False
+                print("exit command unknown")
+                os._exit(1)
+                
 
     def SendQuit(self):
         self.soc.sendall(b"--quit--")
         
 def Main():
-    
-    hciId,TAG_FILTER,TAG_DATA,antenna,gatewayAdr=Initialize()
+    global scan, TAG_FILTER
+    hciId,TAG_FILTER,TAG_DATA,antenna,gatewayAdr = Initialize()
     
     gateway = push(gatewayAdr,7008,antenna)
     gateway.Connect()
@@ -284,12 +335,15 @@ def Main():
     
     while command != 'quit':
         print ("command=",command)
-        gateway.SendCommand(command)
-        message = input(" -> ")
+        if command == "scan":
+            print('start scan')
+            scan = True
+            gateway.SendCommand("--scan--")
+        command = input(" -> ")
     
     gateway.SendQuit()
     gateway.Disconnect()
-    
+    print ('collected tag count =',len(TAG_DATA))
     print("exit scanning")
     os._exit(0)
 

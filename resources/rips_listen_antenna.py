@@ -1,6 +1,7 @@
-import socket
+import os
 import sys
 import traceback
+import socket
 from threading import Thread, Lock
 import json
 import time
@@ -8,11 +9,14 @@ from collections import deque
 import logging
 
 
+CAPTURE_FILE = "captureRssi.txt"
 queue = None
-maxItem = 2
+MAX_ITEM = 2000
 mode = 'Learn'
 debug = True
 mutex = Lock()
+status = "scan"
+
 
 FORMAT = '%(asctime)s - %(message)s'
 if debug :
@@ -22,11 +26,6 @@ else :
     logLevel=logging.CRITICAL    
     logging.basicConfig(format=FORMAT,level=logLevel)
 
-def Main():
-    global queue
-    queue = deque()
-    start_server()
-
 
 def start_server():
     host = "127.0.0.1"
@@ -34,7 +33,7 @@ def start_server():
 
     soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     soc.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # SO_REUSEADDR flag tells the kernel to reuse a local socket in TIME_WAIT state, without waiting for its natural timeout to expire
-    print("Socket created")
+    print("Socket created port:",port)
 
     try:
         soc.bind((host, port))
@@ -61,6 +60,7 @@ def start_server():
 
 
 def client_thread(connection, ip, port, max_buffer_size = 5120):
+    global status
     is_active = True
 
     while is_active:
@@ -73,7 +73,18 @@ def client_thread(connection, ip, port, max_buffer_size = 5120):
             is_active = False
         else:
             #print("Processed result: {}".format(client_input))
-            connection.sendall("-".encode("utf8"))
+            if status == "run" :
+                connection.sendall("-".encode("utf8"))
+            elif status == "stop" :
+                connection.sendall("--stop--".encode("utf8"))
+            elif status == "scan" :
+                connection.sendall("-".encode("utf8"))
+            elif status == "filter" :
+                connection.sendall("--filter--,f0:46:00:0b:8b:01".encode("utf8"))
+                
+                
+            #connection.sendall("stop".encode("utf8"))
+            
 
 
 def receive_input(connection, max_buffer_size):
@@ -94,7 +105,7 @@ def writeBuffer(queue):
     global mutex
     print ("List and clear the queue")
     logging.debug("List and clear the queue, size = %i",len(queue))
-    file = open("captureRssi.txt","w")
+    file = open(CAPTURE_FILE,"a")
     mutex.acquire()
     for data in list(queue):
         #logging.debug('Tag %s seen @ %i - rssi= %i from %s',data[1],data[2],data[3],data[0])
@@ -116,17 +127,13 @@ def analyzePosition(queue):
     return
 
 def process_input(input_str):
-    global queue, maxItem, mode, mutex
+    global queue, MAX_ITEM, mode, mutex
     #print("Processing the input received from client",input_str)
     ts = int(time.time())
-    if "--quit--" in input_str:
+    if "--" in input_str:
         return input_str
     data = json.loads(input_str)
     #logging.debug('Tag %s seen @ %i - rssi= %i from %s',data[1],data[2],data[3],data[0])
-    #print ("antenna=",data[0])
-    #print ("mac=",data[1])
-    #print ("rssi=",data[3])
-    #print ("timestampCLI=",data[2])
     if ts != data[2]:
         #print ("timestampSRV=",ts)
         pass
@@ -136,8 +143,8 @@ def process_input(input_str):
     if mode == "Analyze" :
         analyzePosition(queue)
     #logging.debug('len queue',len(queue))
-    #print ("len queue %i max %i",len(queue),maxItem)
-    if len(queue) > maxItem:
+    #print ("len queue %i max %i",len(queue),MAX_ITEM)
+    if len(queue) > MAX_ITEM:
         if mode == 'Learn':
             writeBuffer(queue)
         else :
@@ -146,6 +153,53 @@ def process_input(input_str):
             mutex.release()
             
     return "Decode= " + str(input_str).upper()
+
+
+def file_len(fname):
+    i=-1
+    with open(fname) as f:
+        for i, l in enumerate(f):
+            pass
+    return i + 1
+
+def Main():
+    global queue, status
+    queue = deque()
+    file = open(CAPTURE_FILE,"w")
+    file.close()
+    
+    try:
+        Thread(target=start_server, args=()).start()
+    except:
+        print("Thread did not start.")
+        traceback.print_exc()
+    #start_server()
+    
+    
+
+    time.sleep(2)
+    print("Enter 'quit' to exit")
+    command = input(" -> ")
+    
+    while command != 'quit':
+        print ("command=",command)
+        if command == "stop" :
+            status = "stop"
+        elif command == "scan" :
+            status = "scan"
+        elif command == "filter" :
+            status = "filter"
+        command = input(" -> ")
+        
+    if mode == "Learn":
+        writeBuffer(queue)
+        count = file_len(CAPTURE_FILE)
+        print ("recorded count =",count)
+    
+    
+    print("exit listening")
+    os._exit(0)
+
 
 if __name__ == "__main__":
     Main()
