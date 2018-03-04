@@ -9,16 +9,18 @@ from collections import deque
 import logging
 
 
-CAPTURE_FILE = "captureRssi.txt"
-queue = None
-MAX_ITEM = 2000
-mode = 'Learn'
 debug = True
+FORMAT = '%(asctime)s - %(message)s'
+CAPTURE_FILE = "captureRssi.txt"
+MAX_ITEM = 2000
+queue = None
+mode = 'Learn'
+#mode = 'Analyze'
 mutex = Lock()
 status = "scan"
 
 
-FORMAT = '%(asctime)s - %(message)s'
+
 if debug :
     logLevel=logging.DEBUG
     logging.basicConfig(format=FORMAT,level=logLevel)
@@ -27,7 +29,7 @@ else :
     logging.basicConfig(format=FORMAT,level=logLevel)
 
 
-def start_server():
+def start_rips_server():
     host = "127.0.0.1"
     port = 7008         # arbitrary non-privileged port
 
@@ -38,7 +40,7 @@ def start_server():
     try:
         soc.bind((host, port))
     except:
-        print("Bind failed. Error : " + str(sys.exc_info()))
+        print("Bind failed. Error : " + str(sys.exc_info())+Bcolors.ENDC)
         sys.exit()
 
     soc.listen(5)       # queue up to 5 requests
@@ -51,15 +53,15 @@ def start_server():
         print("Connected with " + ip + ":" + port)
 
         try:
-            Thread(target=client_thread, args=(connection, ip, port)).start()
+            Thread(target=client_rips_thread, args=(connection, ip, port)).start()
         except:
-            print("Thread did not start.")
+            print(Bcolors.FAIL+"Thread did not start."+Bcolors.ENDC)
             traceback.print_exc()
 
     soc.close()
 
 
-def client_thread(connection, ip, port, max_buffer_size = 5120):
+def client_rips_thread(connection, ip, port, max_buffer_size = 5120):
     global status
     is_active = True
 
@@ -101,7 +103,7 @@ def receive_input(connection, max_buffer_size):
 
     return result
 
-def writeBuffer(queue):
+def write_buffer(queue):
     global mutex
     print ("List and clear the queue")
     logging.debug("List and clear the queue, size = %i",len(queue))
@@ -120,7 +122,7 @@ def writeBuffer(queue):
     mutex.release() 
     file.close() 
         
-def analyzePosition(queue):
+def analyze_position(queue):
     mutex.acquire()
     
     mutex.release()
@@ -141,12 +143,12 @@ def process_input(input_str):
     queue.append(data)
     mutex.release()
     if mode == "Analyze" :
-        analyzePosition(queue)
+        analyze_position(queue)
     #logging.debug('len queue',len(queue))
     #print ("len queue %i max %i",len(queue),MAX_ITEM)
     if len(queue) > MAX_ITEM:
         if mode == 'Learn':
-            writeBuffer(queue)
+            write_buffer(queue)
         else :
             mutex.acquire()
             queue.popleft()
@@ -162,24 +164,36 @@ def file_len(fname):
             pass
     return i + 1
 
-def Main():
+class Bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def init_rips_listen_server():
     global queue, status
     queue = deque()
     file = open(CAPTURE_FILE,"w")
     file.close()
     
     try:
-        Thread(target=start_server, args=()).start()
+        Thread(target=start_rips_server, args=()).start()
     except:
-        print("Thread did not start.")
+        print(Bcolors.FAIL+"Thread did not start."+Bcolors.ENDC)
         traceback.print_exc()
-    #start_server()
-    
+    #start_rips_server()
     
 
+if __name__ == "__main__":
+    init_rips_listen_server()
+    
     time.sleep(2)
-    print("Enter 'quit' to exit")
-    command = input(" -> ")
+    print(Bcolors.HEADER+"Enter 'quit' to exit"+Bcolors.ENDC)
+    command = input(" -> ").lower()
     
     while command != 'quit':
         print ("command=",command)
@@ -189,17 +203,13 @@ def Main():
             status = "scan"
         elif command == "filter" :
             status = "filter"
-        command = input(" -> ")
+        command = input(" -> ").lower()
         
     if mode == "Learn":
-        writeBuffer(queue)
+        write_buffer(queue)
         count = file_len(CAPTURE_FILE)
-        print ("recorded count =",count)
+        print (Bcolors.BOLD+"recorded count =",count)
     
     
-    print("exit listening")
+    print(Bcolors.OKGREEN+"exit listening"+Bcolors.ENDC)
     os._exit(0)
-
-
-if __name__ == "__main__":
-    Main()

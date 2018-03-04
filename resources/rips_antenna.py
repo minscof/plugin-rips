@@ -37,7 +37,7 @@
  
  USAGE
  $ python rips_antenna.py gateway debug antenna hciAdapterID  jsonTagsBDaddr  
-        Example: sudo python rips_antenna.py 192.168.0.2 1 myAntenna 0 "EF:A2:C5:EB:A3:2F,FF:FE:8A:40:FA:97"
+        Example: sudo python rips_antenna.py 192.168.09 1 myAntenna 0 "EF:A2:C5:EB:A3:2F,FF:FE:8A:40:FA:97"
  $ python BLE.py kill
         This will kill the previously launched BLE.py processes
 '''
@@ -68,12 +68,12 @@ def hci_toggle_le_scan(sock, enable):
     cmd_pkt = struct.pack("<BB", enable, 0x00)
     bluez.hci_send_cmd(sock, OGF_LE_CTL, OCF_LE_SET_SCAN_ENABLE, cmd_pkt)
     
-def Initialize():
+def initialize():
     #print('start initialize')    
     TAG_DATA = {} # Example {["EF:A2:C5:EB:A3:2F",0,-200],["FF:FE:8A:40:FA:97",0,-200]} - [bdaddr , timestamp last seen, last rssi] - imported from argv[3]
     TAG_FILTER = {}
     hciId = 0
-    gateway = "127.0.0.1"
+    gatewayAdr = "127.0.0.1"
     
     me = os.path.basename(__file__)
     
@@ -90,7 +90,7 @@ def Initialize():
             sys.exit(1)
     
     if len(sys.argv) > 1:
-        # ARG1: Kill BLE scanner or Help or give gateway
+        # ARG1: Kill BLE scanner or Help or give gatewayAdr
         if sys.argv[1] == "kill": #Kill mode
             x = os.popen("ps aux | grep " + me + " | grep -v grep| grep -v sudo | awk '{print $2}'").read().splitlines() # all processes
             x = list(set(x).difference([str(os.getpid())])) # all processes but current one
@@ -104,16 +104,16 @@ def Initialize():
                 sys.exit(0)
         elif sys.argv[1] == "help": #Kill mode 
             print("Help: Optional arguments are ")
-            print("$ python "+me+" gateway antenna adapterNb debug jsonTagsBdaddr")
+            print("$ python "+me+" gatewayAdr antenna adapterNb debug jsonTagsBdaddr")
             print("$ python "+me+" kill")
             sys.exit(1)
-        else: # name or Ip address of the gateway that collects data
+        else: # name or Ip address of the gatewayAdr that collects data
             try:
-                gateway = sys.argv[1]
-                logging.debug('Will use antenna name %s '%gateway)
+                gatewayAdr = sys.argv[1]
+                logging.debug('Will use antenna name %s '%gatewayAdr)
             except:
-                print('ERROR: Wrong gateway name or ip')
-                logging.critical('ERROR - Wrong gateway name or ip: %s'%sys.argv[1])
+                print('ERROR: Wrong gatewayAdr name or ip')
+                logging.critical('ERROR - Wrong gatewayAdr name or ip: %s'%sys.argv[1])
                 sys.exit(1)
         
             
@@ -157,7 +157,7 @@ def Initialize():
     #TAG_FILTER={["F0:46:00:0B:8B:01"],["E8:4E:BC:87:86:9F"]}
     #TAG_DATA={["F0:46:00:0B:8B:01",0,-200],["E8:4E:BC:87:86:9F",0,-200]}
         
-    return [hciId,TAG_FILTER,TAG_DATA,antenna,gateway]
+    return [hciId,TAG_FILTER,TAG_DATA,antenna,gatewayAdr]
 
 class ListenBle(Thread):
     
@@ -228,18 +228,18 @@ class ListenBle(Thread):
                                 # More than 2 seconds from last seen, so we can call php callback. This prevent overload from high freq advertising devices
                                 inc=0
                                 if ts > tag[1]+inc:
-                                    self.gateway.Send(macAdressSeen,ts,rssi)
+                                    self.gateway.send(macAdressSeen,ts,rssi)
                                         
                 sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, old_filter )
             else :
                 #print("wait 5 sec")
                 time.sleep(5)
                 #print("wait 5 sec ended")
-                self.gateway.SendCommand("--wait--")
+                self.gateway.send_command("--wait--")
                 
 
 
-class push:
+class Push:
     
     def __init__(self,host,port,antenna):
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -247,7 +247,7 @@ class push:
         self.port = port
         self.antenna = antenna
 
-    def Connect(self):
+    def connect(self):
         if self.host == None:
             self.host = "127.0.0.1"
         if self.port == None:
@@ -261,10 +261,10 @@ class push:
             print("Connection error host %s port %i" % (self.host,self.port))
             sys.exit()
             
-    def Disconnect(self):
+    def disconnect(self):
         self.soc.send(b'--quit--')
         
-    def Send(self,macAdress,ts,rssi):
+    def send(self,macAdress,ts,rssi):
         global scan, TAG_FILTER
         #TODO add try except if server leave to leave
         self.soc.sendall(json.dumps([self.antenna,macAdress,ts,rssi],separators=(',', ':')).encode("utf8"))
@@ -284,7 +284,7 @@ class push:
                     print ('filter=',tag)
             
         
-    def SendCommand(self,command):
+    def send_command(self,command):
         global scan, TAG_FILTER
         self.soc.sendall(command.encode("utf8"))
         receive = self.soc.recv(5120)
@@ -317,35 +317,46 @@ class push:
                 os._exit(1)
                 
 
-    def SendQuit(self):
+    def send_quit(self):
         self.soc.sendall(b"--quit--")
         
-def Main():
-    global scan, TAG_FILTER
-    hciId,TAG_FILTER,TAG_DATA,antenna,gatewayAdr = Initialize()
+def init_rips_antenna():
+    global scan, TAG_FILTER, TAG_DATA
+    hciId,TAG_FILTER,TAG_DATA,antenna,gatewayAdr = initialize()
     
-    gateway = push(gatewayAdr,7008,antenna)
-    gateway.Connect()
+    gateway = Push(gatewayAdr,7008,antenna)
+    gateway.connect()
     #TAG_DATA={["F0:46:00:0B:8B:01",0,-200],["E8:4E:BC:87:86:9F",0,-200]}
     t=ListenBle(hciId,TAG_FILTER,TAG_DATA,gateway)
     t.start()
+    return gateway
     
-    print("Enter 'quit' to exit")
-    command = input(" -> ")
+class Bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'    
+
+if __name__ == "__main__":
+    global TAG_DATA
+    gateway = init_rips_antenna()
+    print(Bcolors.HEADER+"Enter 'quit' to exit"+Bcolors.ENDC)
+    command = input(" -> ").lower()
     
     while command != 'quit':
         print ("command=",command)
         if command == "scan":
             print('start scan')
             scan = True
-            gateway.SendCommand("--scan--")
-        command = input(" -> ")
+            gateway.send_command("--scan--")
+        command = input(" -> ").lower()
     
-    gateway.SendQuit()
-    gateway.Disconnect()
-    print ('collected tag count =',len(TAG_DATA))
-    print("exit scanning")
+    gateway.send_quit()
+    gateway.disconnect()
+    print (Bcolors.BOLD+'collected tag count =',len(TAG_DATA))
+    print(Bcolors.OKGREEN+"exit scanning"+Bcolors.ENDC)
     os._exit(0)
-
-if __name__ == "__main__":
-    Main()
