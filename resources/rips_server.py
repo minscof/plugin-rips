@@ -62,20 +62,27 @@ print('Server started at ', strftime("%a, %d %b %Y %H:%M:%S +0000", localtime(ti
 
 myHttpServer = None
 stopMyHttpServer = None
-      
 
-def init_http_server():
+
+  
+def polling(self, unstr):
+    global stopMyHttpServer, myHttpServer
     
-    try:
-        Thread(target=start_http_server, args=(HTTPServer,JeedomHandler,PORT)).start()
-    except:
-        print(Bcolors.FAIL+"Http server did not start."+Bcolors.ENDC)
-        traceback.print_exc()
+    print(unstr, time())
+    
+       
+    
+    if stopMyHttpServer is not None:
+        myHttpServer.stop()
+        print("exit")
+        os._exit(0)
+
+
         
 class JeedomHandler(BaseHTTPRequestHandler):
     def _set_polling(self):
         # initialization.
-        self.polling = MyTimer(5.0, polling, [self,"polling "])
+        self.polling = MyTimer(5.0, polling, [self,"polling2 "])
         print ("affiche polling...")
          
     def _set_headers(self,result,content_type):
@@ -90,7 +97,6 @@ class JeedomHandler(BaseHTTPRequestHandler):
         result,content_type,data = self.process(self.path)
         self._set_headers(result,content_type)
         self.wfile.write(bytes(data, "utf8"))
-        
 
     def do_HEAD(self):
         self._set_headers()
@@ -169,37 +175,7 @@ class JeedomHandler(BaseHTTPRequestHandler):
         data = '{"result":"notfound"}'
         return [200,content_type,data]
 
-def start_http_server(server_class=HTTPServer, handler_class=JeedomHandler, port=PORT):
-    global myHttpServer
-    print(Bcolors.HEADER+"start start_http_server"+Bcolors.ENDC)
-    server_address = ('', port)
-    handler_class._set_polling(handler_class)
-    
-    
-    print('Listening on http://127.0.0.1:%s ' % PORT)
-  
-    print("EVENT to notify start server", jeedomCmd + 'start')
-    #urllib2.urlopen(jeedomCmd + 'start').read()
-    print("EVENT to notify start server", jeedomCmd + 'start - DONE')
-    
-    try:
-  
-        myHttpServer = server_class(server_address, handler_class)
-        print ('Starting httpd...')
-        myHttpServer.serve_forever()
-    except (KeyboardInterrupt, SystemExit):
-      print('interception signal')
-      os._exit(0)
 
-
-  
-def polling(self, unstr):
-    global stopMyHttpServer, myHttpServer
-    print(unstr, time())
-    if stopMyHttpServer is not None:
-        myHttpServer.stop()
-        print("exit")
-        os._exit(0)
         
 class MyTimer: 
     def __init__(self, tempo, target, args= [], kwargs={}): 
@@ -220,7 +196,35 @@ class MyTimer:
     def stop(self): 
         self._timer.cancel() 
 
+def start_http_server(server_class=HTTPServer, handler_class=JeedomHandler, port=PORT):
+        global myHttpServer
+        print(Bcolors.HEADER+"start start_http_server"+Bcolors.ENDC)
+        server_address = ('', port)
+        handler_class._set_polling(handler_class)
+        
+        
+        print('Listening on http://127.0.0.1:%s ' % PORT)
+      
+        print("EVENT to notify start server", jeedomCmd + 'start')
+        #urllib2.urlopen(jeedomCmd + 'start').read()
+        print("EVENT to notify start server", jeedomCmd + 'start - DONE')
+        
+        try:
+      
+            myHttpServer = server_class(server_address, handler_class)
+            print ('Starting httpd...')
+            myHttpServer.serve_forever()
+        except (KeyboardInterrupt, SystemExit):
+          print('interception signal')
+          os._exit(0)
+
+def init_http_server():
     
+    try:
+        Thread(target=start_http_server, args=(HTTPServer,JeedomHandler,PORT)).start()
+    except:
+        print(Bcolors.FAIL+"Http server did not start."+Bcolors.ENDC)
+        traceback.print_exc()
 
  
 class Bcolors:

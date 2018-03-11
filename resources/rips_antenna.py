@@ -74,6 +74,7 @@ def initialize():
     TAG_FILTER = {}
     hciId = 0
     gatewayAdr = "127.0.0.1"
+    gatewayAdr = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET,socket.SOCK_DGRAM)]][0][1]]) if l][0][0]
     
     me = os.path.basename(__file__)
     
@@ -249,7 +250,7 @@ class Push:
 
     def connect(self):
         if self.host == None:
-            self.host = "127.0.0.1"
+            self.host = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET,socket.SOCK_DGRAM)]][0][1]]) if l][0][0]
         if self.port == None:
             self.port = 7008
         if self.antenna == None:
@@ -353,6 +354,8 @@ if __name__ == "__main__":
             print('start scan')
             scan = True
             gateway.send_command("--scan--")
+        if command == "help":
+            print('scan or quit')
         command = input(" -> ").lower()
     
     gateway.send_quit()
